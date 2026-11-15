@@ -189,13 +189,13 @@ export class Battle {
 	trunc: (num: number, bits?: number) => number;
 	clampIntRange: (num: any, min?: number, max?: number) => number;
 	toID = toID;
-	constructor(options: BattleOptions) {
+	constructor(options: BattleOptions, dex?: ModdedDex) {
 		this.log = [];
 		this.add('t:', Math.floor(Date.now() / 1000));
 
 		const format = options.format || Dex.formats.get(options.formatid, true);
 		this.format = format;
-		this.dex = Dex.forFormat(format);
+		this.dex = dex ?? Dex.forFormat(format);
 		this.gen = this.dex.gen;
 		this.ruleTable = this.dex.formats.getRuleTable(format);
 
@@ -3282,14 +3282,17 @@ export class Battle {
 		}
 	}
 
+	protected createSide(slotNum: number, options: PlayerOptions) {
+		return new Side(options.name || `Player ${slotNum + 1}`, this, slotNum, this.getTeam(options));
+	}
+
 	setPlayer(slot: SideID, options: PlayerOptions) {
 		let side;
 		let didSomething = true;
 		const slotNum = parseInt(slot[1]) - 1;
 		if (!this.sides[slotNum]) {
 			// create player
-			const team = this.getTeam(options);
-			side = new Side(options.name || `Player ${slotNum + 1}`, this, slotNum, team);
+			side = this.createSide(slotNum, options);
 			if (options.avatar) side.avatar = `${options.avatar}`;
 			this.sides[slotNum] = side;
 		} else {
