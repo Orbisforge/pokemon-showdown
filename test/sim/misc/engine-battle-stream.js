@@ -1,6 +1,6 @@
 'use strict';
 
-const assert = require('node:assert/strict');
+const assert = require('../../assert');
 const { EngineBattleStream } = require('../../../dist/sim/engine-battle-stream');
 
 const start = '>start {"format":{"mod":"gen9","gameType":"singles","ruleset":[]}}';
@@ -20,9 +20,9 @@ describe('EngineBattleStream', () => {
 		assert.equal(stream.battle.winner, 'Alice');
 		const messages = [];
 		for await (const message of stream) messages.push(message);
-		assert.ok(messages.some(message => message.startsWith('sideupdate\np1\n|request|')));
-		assert.ok(messages.some(message => message.startsWith('sideupdate\np2\n|request|')));
-		assert.ok(messages.some(message => message.includes('\n|win|Alice')));
+		assert(messages.some(message => message.startsWith('sideupdate\np1\n|request|')));
+		assert(messages.some(message => message.startsWith('sideupdate\np2\n|request|')));
+		assert(messages.some(message => message.includes('\n|win|Alice')));
 
 		const replay = new EngineBattleStream({ noCatch: true });
 		await replay.write(stream.battle.inputLog.join('\n'));
