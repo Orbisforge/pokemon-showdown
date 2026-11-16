@@ -110,6 +110,11 @@ exports.transpileEngine = () => {
 		fs.copyFileSync(path.join(dependencyRoot, file), destination);
 	}
 	require('./build-nomelat-moves.cjs').buildNomelatTranslators(outdir);
+	const { Dex } = require(path.join(outdir, 'sim/dex.js'));
+	const ids = Object.fromEntries(['moves', 'abilities', 'species', 'items'].map(category => [
+		category, [...new Set(Dex[category].all().map(entry => entry.id))].sort(),
+	]));
+	fs.writeFileSync(path.join(outdir, 'showdown-ids.json'), JSON.stringify(ids) + '\n');
 	console.log('Engine built in .engine-dist/');
 	return outdir;
 };

@@ -60,6 +60,8 @@ The build also includes the Nomelat translators under `nomelat/`. The host can c
 `getAssetIds()` returns the published asset-to-engine ID mappings as JSON. Use those IDs and
 `format.mod: "orbisforge"` for new battles using Nomelat assets. Existing battles retain the registry
 that was current when they started.
+The ZIP also includes `showdown-ids.json`, generated from the packaged Gen 9 Dex. The asset editor
+can read these native move, ability, species and item IDs before starting GraalJS.
 
 Use `npm start` to run the web server for manual testing.
 
