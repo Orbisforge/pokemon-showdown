@@ -5,15 +5,17 @@ const path = require('node:path');
 const child_process = require("child_process");
 const esbuild = require('esbuild');
 
-const copyOverDataJSON = (outdir = 'dist', file = 'data') => {
+const copyOverDataJSON = (outdir = 'dist', file = 'data', include = () => true) => {
 	const files = fs.readdirSync(file);
 	for (const f of files) {
-		if (fs.statSync(`${file}/${f}`).isDirectory()) {
-			copyOverDataJSON(outdir, `${file}/${f}`);
+		const source = `${file}/${f}`;
+		if (!include(source)) continue;
+		if (fs.statSync(source).isDirectory()) {
+			copyOverDataJSON(outdir, source, include);
 		} else if (f.endsWith('.json')) {
-			const destination = path.resolve(outdir, file, f);
+			const destination = path.resolve(outdir, source);
 			fs.mkdirSync(path.dirname(destination), { recursive: true });
-			fs.copyFileSync(`${file}/${f}`, destination);
+			fs.copyFileSync(source, destination);
 		}
 	}
 };
@@ -80,8 +82,9 @@ exports.transpileEngine = () => {
 	esbuild.buildSync({
 		entryPoints: [
 			...findFilesForPath('sim').filter(file => !/^sim\/(examples|tools)\//.test(file)),
-			...findFilesForPath('data'),
-			'config/formats.ts', 'lib/fs.ts', 'lib/streams.ts', 'lib/utils.ts',
+			...findFilesForPath('data').filter(file =>
+				!/^data\/(random-battles|text)\//.test(file) && file !== 'data/formats-data.ts'),
+			'lib/fs.ts', 'lib/streams.ts', 'lib/utils.ts',
 		],
 		outdir,
 		outbase: '.',
@@ -90,7 +93,12 @@ exports.transpileEngine = () => {
 	});
 	// The simulator and some formats import this entry point.
 	fs.copyFileSync('tools/engine-lib.js', path.join(outdir, 'lib/index.js'));
-	copyOverDataJSON(outdir);
+	// The host supplies teams and formats, so the standalone engine has no
+	// Smogon format catalog or random-team data.
+	const formatsPath = path.join(outdir, 'config/formats.js');
+	fs.mkdirSync(path.dirname(formatsPath), { recursive: true });
+	fs.writeFileSync(formatsPath, `'use strict';\nexports.Formats = [];\n`);
+	copyOverDataJSON(outdir, 'data', source => !source.startsWith('data/random-battles/') && !source.startsWith('data/text/'));
 	fs.copyFileSync('LICENSE', path.join(outdir, 'LICENSE'));
 	const dependencyManifest = require.resolve('ts-chacha20/package.json');
 	const dependencyRoot = path.dirname(dependencyManifest);
