@@ -3,6 +3,182 @@ Simulator protocol
 
 Pokémon Showdown's simulator protocol is implemented as a newline-and-pipe-delimited text stream. For details on how to read to or write from the text stream, see [sim/SIMULATOR.md](./SIMULATOR.md).
 
+## Standalone engine protocol for Hytale
+
+This section documents the host interface of `EngineBattleStream`. Write commands as lines starting with
+`>`. Each stream output starts with a frame name, a newline, and its payload. For example:
+
+```text
+sideupdate
+p1
+|request|{"active":[...],"side":{...}}
+```
+
+### Commands Hytale sends
+
+The Hytale server translates player actions and encounter rules into these commands. Read the engine's
+`sideupdate` requests to know who needs to act, and wait for `end` before recording an outcome.
+
+| When | Command | What to send |
+| --- | --- | --- |
+| Create the encounter | `>start <JSON>` | The explicit `format` and, for wild encounters, `wildSide`. |
+| Register each participant | `>player p1 <JSON>` | The slot, team and optional starting Pokémon state. Repeat for every slot required by the format, including wild and NPC slots. |
+| Respond to Team Preview | `>p1 team 213` | The participant receiving the request and their ordered team slots. |
+| Choose a move | `>p1 move 1` | A move slot. Add a target when required, for example `>p1 move 1 +1`. |
+| Switch or replace a fainted Pokémon | `>p1 switch 2` | A team slot allowed by the current request. |
+| Submit choices for multiple active Pokémon | `>p1 move 1 +1, move 2 +2` | One choice per active slot that must act, in slot order. Use `pass` for slots that need no action when explicitly listing those slots. In Multi, each participant sends their own choice. |
+| Cancel a pending choice | `>p1 undo` | The participant whose submitted choice is still pending. Only send it if cancellation is allowed. |
+| Let the engine choose | `>p1 default` | The participant for whom Hytale wants the engine to pick a legal choice, for example after a timeout. |
+| Use a bag item | `>useitem {"side":"p1","item":"potion","target":"party-123"}` | The acting participant, item ID and target Pokémon ID. Add `moveSlot` for Ether and Max Ether. Apply inventory consumption only if the response says `applied: true`. |
+| Read trapping effects | `>trapstate` | No arguments. Use the reply as input to Hytale's escape rules. |
+| Confirm a successful capture | `>capture p1 wild-123` | The capturing participant and the active wild Pokémon's stable ID. Send only in wild Singles, after Hytale determines the capture succeeded and only one wild Pokémon remains alive. |
+| Confirm a successful wild escape | `>escape p1` | The escaping participant. Send after Hytale grants the escape in a wild encounter. |
+| Confirm a trainer's surrender | `>forcelose p1` | The participant who surrendered. Send this for **Forfeit** in trainer battles. |
+| Force a result from the server | `>forcewin p2` or `>forcetie` | The winning slot for a server-declared victory, or no arguments for a server-declared tie. Normal victories and ties are decided by the engine without a host command. |
+| Read battle data | `>requestlog`, `>requestexport` or `>requestteam p1` | Optional requests for the input log, replay export or a participant's packed team. |
+
+The base simulator's debug commands `>eval` (execute JavaScript) and `>editbattle` (edit battle state)
+are unavailable on `EngineBattleStream`.
+
+### Starting a battle and sending choices
+
+- `>start {"format":{"mod":"gen9","gameType":"doubles","ruleset":[]}}` sets an explicit format.
+- `>player p1 <JSON>` registers that participant. Supply a nonempty `team` array or a packed team string.
+  You can include `pokemonState` in team order with unique IDs and initial HP, status and PP. Without
+  it, IDs are assigned by side and original roster position, such as `p1:1`. These IDs stay stable
+  when choosing a team or switching Pokémon.
+- Use `>p1 move 1`, `>p1 switch 2` and the other [choices listed below](#possible-choices) in response
+  to that side's choice request. For example, `>p1 move 1, move 2` assigns one action per active Pokémon
+  in Doubles. Wait requests require no choice.
+
+For example, Hytale starts a wild Singles encounter by writing these three lines:
+
+```text
+>start {"format":{"mod":"gen9","gameType":"singles","ruleset":[]},"wildSide":"p2"}
+>player p1 {"name":"Trainer","team":[{"species":"Pikachu","moves":["Tackle"]}],"pokemonState":[{"id":"party-123"}]}
+>player p2 {"name":"Wild Eevee","team":[{"species":"Eevee","moves":["Tackle"]}],"pokemonState":[{"id":"wild-123"}]}
+```
+
+After the engine requests choices, Hytale can submit the player's action with `>p1 move 1` and the wild
+Pokémon's action with `>p2 move 1`. For a granted escape, send `>escape p1` instead of a move choice.
+For a trainer match, omit `wildSide` from the initial command and use `>forcelose p1` if that trainer
+confirms surrender.
+
+| `gameType` | Participants and active slots |
+| --- | --- |
+| `singles` | `p1` against `p2`, one active Pokémon per participant |
+| `doubles` | `p1` against `p2`, two active Pokémon per participant |
+| `triples` | `p1` against `p2`, three active Pokémon per participant |
+| `multi` | `p1` and `p3` against `p2` and `p4`, one active Pokémon per participant |
+| `freeforall` | `p1` through `p4` play independently, one active Pokémon per participant |
+
+For a wild encounter, include `"wildSide":"p2"` at the top level of `>start`. This marks the whole team
+containing `p2` as wild. In Multi that includes `p4`. Omit `wildSide` for trainer battles. Free-for-All
+does not support a wild team.
+
+### Output frames
+
+| Frame | Payload | How the host uses it |
+| --- | --- | --- |
+| `update` | One or more standard Showdown lines separated by newlines | Read [battle events](#receiving-messages) such as turn, move, switch, HP change, status, faint, victory and tie, plus the engine-specific lines below. The raw payload can contain `\|split\|` lines with private data. Filter those by recipient before forwarding a client view. |
+| `sideupdate` | Side ID on its own line, then the event line | Deliver only to that participant. `\|request\|` carries a [choice request](#choice-requests) or an update to it. `\|error\|` reports an invalid or unavailable choice. Side updates can also contain private battle notices. |
+| `bagitem` | JSON object | Response to a valid `>useitem` command. Fields are `side`, `item` (normalized ID), `target`, `applied` and `pokemonState`. |
+| `trapstate` | JSON array | Server-only response to `>trapstate`. Contains trapping details for living active Pokémon. |
+| `escape` | JSON object | Rejection of an escape command. Contains the requested `side`, `applied: false` and a `reason`. |
+| `end` | JSON object | Final result and Pokémon state for the host. Use this frame to settle the match and persist results. |
+| `requesteddata` | Plain text | Response to `>requestlog` (input lines), `>requestexport` (seed, then input lines), or `>requestteam p1` (packed team). |
+
+These are the normal host stream frames. The stream's replay mode outputs filtered battle log lines
+instead of the framed battle events. Command errors that throw are surfaced as stream errors by default
+or thrown to the caller with `noCatch`. A rejected choice or rejected escape uses the frames above.
+
+### Engine events and the commands that produce them
+
+| Command or trigger | Event | Meaning |
+| --- | --- | --- |
+| `>useitem {"side":"p1","item":"potion","target":"party-123"}` | `bagitem` response. On success the log records `\|bagitem\|SIDE\|POKEMON\|ITEM_ID` and can include effect lines such as healing or status changes. | Runs a built-in bag effect on that participant's battle team while they have a move request. Use the response's `applied` field to confirm consumption. A valid item with no effect returns `applied: false`. Ether and Max Ether require a one-based `moveSlot`. Revive and Max Revive target fainted members on the bench. The host owns the inventory and decides whether use consumes a choice. |
+| `>trapstate` | `trapstate` response | Reads the latest trapping effects evaluated by the simulator. This does not make a turn choice or attempt to escape. |
+| `>capture p1 wild-123` | `\|capture\|POKEMON\|POKEMON_ID` followed by `end` | The host confirms a successful capture in wild Singles. The target must be the active wild Pokémon and the only living member of the wild team. The engine removes it from play, records the capture in `inputLog` and returns its state in `capturedPokemon`. |
+| `>escape p1` | `\|escape\|p1` followed by `end`, or a rejection frame | Confirms an escape already resolved by the host. Only a participant facing a wild team may escape. A rejection leaves the battle open. |
+| `>forcelose p1` | `\|forfeit\|p1` | Confirms a trainer's surrender. Ends Singles, Doubles and Triples. In Multi, the participant's team loses. In Free-for-All, the others continue until a winner is determined. |
+| Normal knockout victory or `>forcewin p2` | `\|win\|PLAYER_NAME` followed by `end` | One side or team wins. Multi lists both allied names on the log line. Use the side IDs in `end` for results. |
+| Normal tie or `>forcetie` | `\|tie` followed by `end` | Ends without a winner. |
+
+In Hytale, expose **Run** in wild encounters and **Forfeit** in trainer battles. Hytale can use the
+trapping response to decide whether to offer or grant escape. An escape confirmation rejected by the
+engine returns one of these reasons:
+
+| Rejection reason | Meaning |
+| --- | --- |
+| `not-wild-encounter` | The battle has no `wildSide`. |
+| `battle-not-active` | The wild encounter has not reached its first turn or has already ended. |
+| `invalid-player-side` | The requested side is unknown, eliminated or on the wild team. |
+
+#### Trapping payload
+
+Each entry contains `id`, `side`, `switchBlocked` and `sources`. `switchBlocked` describes the
+simulator's switch restriction. The host applies its own escape rules using the effects in `sources`.
+Effects can have a different internal ID and cause ID. For example, Magma Storm produces the
+`partiallytrapped` condition:
+
+```json
+[
+  {
+    "id": "party-123",
+    "side": "p1",
+    "switchBlocked": true,
+    "sources": [
+      {
+        "id": "partiallytrapped",
+        "name": "partiallytrapped",
+        "type": "Condition",
+        "causeId": "magmastorm",
+        "causeName": "Magma Storm",
+        "sourcePokemonId": "wild-123",
+        "remainingTurns": 3,
+        "hidden": false
+      }
+    ]
+  }
+]
+```
+
+An ability like Arena Trap reports the ability as the cause. `remainingTurns` is present when the
+effect tracks a duration, and `sourcePokemonId` is present when a source Pokémon can be identified.
+Sources with `hidden: true` can reveal hidden abilities. Keep the full response on the server.
+
+#### Final result
+
+| `reason` | Final outcome |
+| --- | --- |
+| `victory` | The engine determined a winner, or the host declared one with `>forcewin`. An ending capture can also produce a victory. |
+| `forfeit` | The surrender determined the winner. In Free-for-All, earlier surrenders still appear in `forfeitedSides` if the eventual winner is decided through play. |
+| `tie` | Neither side won. `winningSides` and `losingSides` are empty. |
+| `escape` | A player escaped a wild encounter. `escapedSide` identifies the player and both result arrays are empty. |
+
+If `p1` forfeits in Multi, the relevant result fields are:
+
+```json
+{
+  "reason": "forfeit",
+  "winningSides": ["p2", "p4"],
+  "losingSides": ["p1", "p3"],
+  "forfeitedSides": ["p1"],
+  "capturedPokemon": []
+}
+```
+
+`pokemonState` maps each participant ID to its original roster's final states. Captured Pokémon are
+removed from that roster's output and appear in `capturedPokemon`. Each exported Pokémon state has
+`id`, `hp`, `maxHp`, `status` and `pp` in team move order. A sleeping Pokémon also has
+`sleepTurns`. The same state shape appears in the bag item response under `pokemonState`.
+
+The frame also includes the standard Showdown fields `winner`, `seed`, `turns`, player names
+(`p1` through `p4` as applicable), submitted teams (`p1team` through `p4team` as applicable),
+`score` (remaining Pokémon by side slot) and `inputLog`. Use `winningSides` for settlement because
+the standard `winner` field is a display name. Replay `inputLog` through `EngineBattleStream` to
+reproduce a capture with the same format and wild side.
+
 
 Receiving messages
 ------------------
