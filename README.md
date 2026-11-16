@@ -41,8 +41,18 @@ Pokémon Showdown simulates singles, doubles and triples battles in all the game
 ### Standalone engine build
 
 Run `npm ci` and `npm run build:engine` to generate `.engine-dist/`.
-With Node.js 22.18.0 or later, load `.engine-dist/sim/index.js` to use `BattleStream`, `Dex`, and `Teams`.
-The output includes the simulator, battle data, standard formats, and its runtime dependency.
+With Node.js 22.18.0 or later, load `.engine-dist/sim/engine-battle-stream.js` to use
+`EngineBattleStream`. The output includes the simulator, battle data and its runtime dependency.
+
+Run `npm run package:engine` to build and create `.engine-package/nomelat-engine.zip` and
+`.engine-package/engine.json`. Packaging uses Windows' `tar.exe` or `zip` on other platforms.
+The manifest is also inside the ZIP. Increment `engineVersion` in `tools/engine.json` for each
+released engine package, and increment `protocolVersion` for incompatible changes to the
+[host protocol](./sim/SIM-PROTOCOL.md#standalone-engine-protocol-for-hytale).
+Hytale can compare the external manifest with the installed one before extracting and check
+that the plugin supports the protocol version. This package targets Node.js; embedding it with
+GraalJS requires a runtime adapter.
+
 Use `npm start` to run the web server for manual testing.
 
 

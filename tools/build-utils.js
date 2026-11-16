@@ -82,8 +82,7 @@ exports.transpileEngine = () => {
 	esbuild.buildSync({
 		entryPoints: [
 			...findFilesForPath('sim').filter(file => !/^sim\/(examples|tools)\//.test(file)),
-			...findFilesForPath('data').filter(file =>
-				!/^data\/(random-battles|text)\//.test(file) && file !== 'data/formats-data.ts'),
+			...findFilesForPath('data').filter(file => !/^data\/(random-battles|text)\//.test(file)),
 			'lib/fs.ts', 'lib/streams.ts', 'lib/utils.ts',
 		],
 		outdir,
@@ -100,6 +99,7 @@ exports.transpileEngine = () => {
 	fs.writeFileSync(formatsPath, `'use strict';\nexports.Formats = [];\n`);
 	copyOverDataJSON(outdir, 'data', source => !source.startsWith('data/random-battles/') && !source.startsWith('data/text/'));
 	fs.copyFileSync('LICENSE', path.join(outdir, 'LICENSE'));
+	fs.copyFileSync(path.join(__dirname, 'engine.json'), path.join(outdir, 'engine.json'));
 	const dependencyManifest = require.resolve('ts-chacha20/package.json');
 	const dependencyRoot = path.dirname(dependencyManifest);
 	const dependencyEntry = path.relative(dependencyRoot, require.resolve('ts-chacha20'));
@@ -109,4 +109,26 @@ exports.transpileEngine = () => {
 		fs.copyFileSync(path.join(dependencyRoot, file), destination);
 	}
 	console.log('Engine built in .engine-dist/');
+	return outdir;
+};
+
+exports.archiveEngine = source => {
+	const outdir = path.join(path.dirname(source), '.engine-package');
+	fs.mkdirSync(outdir, { recursive: true });
+	const archive = path.join(outdir, 'nomelat-engine.zip');
+	const temp = path.join(outdir, 'nomelat-engine.tmp.zip');
+	const windows = process.platform === 'win32';
+	const tool = windows ? 'tar.exe' : 'zip';
+	fs.rmSync(temp, { force: true });
+	try {
+		const args = windows ? ['-a', '-cf', temp, '.'] : ['-q', '-r', temp, '.'];
+		const result = child_process.spawnSync(tool, args, { cwd: source, stdio: 'inherit' });
+		if (result.error) throw new Error(`Could not run ${tool} to package the engine`, { cause: result.error });
+		if (result.status !== 0) throw new Error(`${tool} failed to package the engine`);
+		fs.renameSync(temp, archive);
+		fs.copyFileSync(path.join(source, 'engine.json'), path.join(outdir, 'engine.json'));
+	} finally {
+		fs.rmSync(temp, { force: true });
+	}
+	console.log('Engine ZIP and manifest written to .engine-package/');
 };
