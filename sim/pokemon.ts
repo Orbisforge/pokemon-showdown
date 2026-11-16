@@ -38,6 +38,8 @@ export interface EffectState {
 	[k: string]: any;
 }
 
+const trapSources = new WeakMap<Pokemon, { effect: Effect, state: EffectState, hidden: boolean }[]>();
+
 // Berries which restore PP/HP and thus inflict external staleness when given to an opponent as
 // there are very few non-malicious competitive reasons to do so
 export const RESTORATIVE_BERRIES = new Set([
@@ -1628,9 +1630,26 @@ export class Pokemon {
 
 	tryTrap(isHidden = false) {
 		if (!this.runStatusImmunity('trapped')) return false;
-		if (this.trapped && isHidden) return true;
-		this.trapped = isHidden ? 'hidden' : true;
+		this.setTrapped(isHidden);
 		return true;
+	}
+
+	/** Records a successful trap without applying the usual type immunity. */
+	setTrapped(hidden = false) {
+		if (!hidden || !this.trapped) this.trapped = hidden ? 'hidden' : true;
+		const { event, effect, effectState } = this.battle;
+		if (event?.id !== 'TrapPokemon') return;
+		const sources = trapSources.get(this) ?? [];
+		sources.push({ effect, state: effectState, hidden });
+		trapSources.set(this, sources);
+	}
+
+	resetTrapSources() {
+		trapSources.delete(this);
+	}
+
+	getTrapSources() {
+		return trapSources.get(this) ?? [];
 	}
 
 	hasMove(moveid: string) {

@@ -16738,7 +16738,7 @@ export const Moves: import('../sim/dex-moves').MoveDataTable = {
 			onFoeTrapPokemonPriority: -15,
 			onFoeTrapPokemon(defender) {
 				if (defender !== this.effectState.source) return;
-				defender.trapped = true;
+				defender.setTrapped();
 			},
 			onFoeBeforeMovePriority: 12,
 			onFoeBeforeMove(attacker, defender, move) {

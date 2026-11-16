@@ -766,6 +766,7 @@ export class Battle {
 		eventid: string, target?: Pokemon | Pokemon[] | Side | Battle | null, source?: string | Pokemon | false | null,
 		sourceEffect?: Effect | null, relayVar?: any, onEffect?: boolean, fastExit?: boolean
 	) {
+		if (eventid === 'TrapPokemon' && target instanceof Pokemon) target.resetTrapSources();
 		// if (Battle.eventCounter) {
 		// 	if (!Battle.eventCounter[eventid]) Battle.eventCounter[eventid] = 0;
 		// 	Battle.eventCounter[eventid]++;
@@ -1548,12 +1549,16 @@ export class Battle {
 		} else {
 			this.add('tie');
 		}
+		this.finishBattle();
+		return true;
+	}
+
+	protected finishBattle() {
 		this.ended = true;
 		this.requestState = '';
 		for (const s of this.sides) {
 			if (s) s.activeRequest = null;
 		}
-		return true;
 	}
 
 	lose(side: SideID | Side) {

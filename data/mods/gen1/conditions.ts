@@ -186,7 +186,7 @@ export const Conditions: import('../../../sim/dex-conditions').ModdedConditionDa
 				delete pokemon.volatiles['trapped'];
 				return;
 			}
-			pokemon.trapped = true;
+			pokemon.setTrapped();
 		},
 	},
 	partiallytrapped: {

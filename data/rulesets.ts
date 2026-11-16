@@ -2212,7 +2212,7 @@ export const Rulesets: import('../sim/dex-formats').FormatDataTable = {
 			this.add('rule', 'No Switching: All Pokemon are trapped');
 		},
 		onTrapPokemon(pokemon) {
-			pokemon.trapped = true;
+			pokemon.setTrapped();
 		},
 	},
 	guaranteedsecondarymod: {

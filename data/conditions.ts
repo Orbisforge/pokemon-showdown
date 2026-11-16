@@ -823,7 +823,7 @@ export const Conditions: import('../sim/dex-conditions').ConditionDataTable = {
 		// Prevents Shed Shell allowing a swap
 		onTrapPokemonPriority: -11,
 		onTrapPokemon(pokemon) {
-			pokemon.trapped = true;
+			pokemon.setTrapped();
 		},
 	},
 	// Tatsugiri
@@ -837,7 +837,7 @@ export const Conditions: import('../sim/dex-conditions').ConditionDataTable = {
 		// Prevents Shed Shell allowing a swap
 		onTrapPokemonPriority: -11,
 		onTrapPokemon(pokemon) {
-			pokemon.trapped = true;
+			pokemon.setTrapped();
 		},
 		// Dodging moves is handled in BattleActions#hitStepInvulnerabilityEvent
 		// This is here for moves that manually call this event like Perish Song

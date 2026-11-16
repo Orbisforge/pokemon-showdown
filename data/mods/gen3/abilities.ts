@@ -216,7 +216,7 @@ export const Abilities: import('../../../sim/dex-abilities').ModdedAbilityDataTa
 	shadowtag: {
 		inherit: true,
 		onFoeTrapPokemon(pokemon) {
-			pokemon.trapped = true;
+			pokemon.setTrapped();
 		},
 	},
 	static: {
