@@ -17,6 +17,8 @@ interface EnginePlayerOptions extends PlayerOptions {
 const rosters = new WeakMap<Side, { id: string, pokemon: Pokemon }[]>();
 
 class EngineBattle extends Battle {
+	readonly capturedPokemon: EnginePokemonState[] = [];
+
 	protected override createSide(slotNum: number, options: EnginePlayerOptions) {
 		const side = super.createSide(slotNum, options);
 		const states = options.pokemonState;
@@ -53,6 +55,28 @@ class EngineBattle extends Battle {
 		const team = typeof options.team === 'string' ? Teams.unpack(options.team) : options.team;
 		if (!Array.isArray(team) || !team.length) throw new Error('Expected a nonempty explicit team');
 		return team;
+	}
+
+	capturePokemon(capturingSideId: SideID, id: string) {
+		if (this.ended) throw new Error('Cannot capture Pokemon after the battle has ended');
+		const capturingSide = this.sides.find(side => side.id === capturingSideId);
+		if (!capturingSide) throw new Error(`Unknown capturing side: ${capturingSideId}`);
+		const entry = this.sides.flatMap(side => rosters.get(side) ?? []).find(candidate => candidate.id === id);
+		if (!entry || entry.pokemon.fainted) throw new Error(`Cannot capture unknown or fainted Pokemon ID: ${id}`);
+		const { pokemon } = entry;
+		if (pokemon.side === capturingSide || pokemon.side === capturingSide.allySide) {
+			throw new Error('A side cannot capture its own Pokemon or an ally');
+		}
+		if (pokemon.side.pokemonLeft !== 1) {
+			throw new Error('Capture is only supported for the last remaining Pokemon on a side');
+		}
+		const state = exportPokemonState(id, pokemon);
+		this.capturedPokemon.push(state);
+		pokemon.side.pokemonLeft = 0;
+		const activePosition = pokemon.side.active.indexOf(pokemon);
+		if (activePosition >= 0) pokemon.side.active[activePosition] = null!;
+		this.add('capture', pokemon, id);
+		this.checkWin();
 	}
 }
 
@@ -100,12 +124,26 @@ export class EngineBattleStream extends BattleStream {
 		return battle;
 	}
 
+	override _writeLine(type: string, message: string) {
+		if (type === 'capture') {
+			if (!this.battle || !(this.battle instanceof EngineBattle)) throw new Error('Start the battle before capturing Pokemon');
+			const match = /^(p[1-4]) ([^\s]+)$/.exec(message);
+			if (!match) throw new Error('Expected a side and Pokemon ID in >capture');
+			this.battle.capturePokemon(match[1] as SideID, match[2]);
+			return;
+		}
+		super._writeLine(type, message);
+	}
+
 	override pushMessage(type: string, data: string) {
 		if (type === 'end' && this.battle) {
+			const engineBattle = this.battle as EngineBattle;
+			const capturedIds = new Set(engineBattle.capturedPokemon.map(pokemon => pokemon.id));
 			const pokemonState = Object.fromEntries(this.battle.sides.map(side => [
-				side.id, rosters.get(side)?.map(({ id, pokemon }) => exportPokemonState(id, pokemon)) ?? [],
+				side.id, rosters.get(side)?.filter(({ id }) => !capturedIds.has(id))
+					.map(({ id, pokemon }) => exportPokemonState(id, pokemon)) ?? [],
 			]));
-			data = JSON.stringify({ ...JSON.parse(data), pokemonState });
+			data = JSON.stringify({ ...JSON.parse(data), pokemonState, capturedPokemon: engineBattle.capturedPokemon });
 		}
 		super.pushMessage(type, data);
 	}
