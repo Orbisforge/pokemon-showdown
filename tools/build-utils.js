@@ -92,6 +92,7 @@ exports.transpileEngine = () => {
 	});
 	// The simulator and some formats import this entry point.
 	fs.copyFileSync('tools/engine-lib.js', path.join(outdir, 'lib/index.js'));
+	fs.copyFileSync('tools/engine-index.js', path.join(outdir, 'index.js'));
 	// The host supplies teams and formats, so the standalone engine has no
 	// Smogon format catalog or random-team data.
 	const formatsPath = path.join(outdir, 'config/formats.js');
@@ -108,6 +109,7 @@ exports.transpileEngine = () => {
 		fs.mkdirSync(path.dirname(destination), { recursive: true });
 		fs.copyFileSync(path.join(dependencyRoot, file), destination);
 	}
+	require('./build-nomelat-moves.cjs').buildNomelatTranslators(outdir);
 	console.log('Engine built in .engine-dist/');
 	return outdir;
 };

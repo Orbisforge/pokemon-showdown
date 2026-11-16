@@ -50,8 +50,16 @@ The manifest is also inside the ZIP. Increment `engineVersion` in `tools/engine.
 released engine package, and increment `protocolVersion` for incompatible changes to the
 [host protocol](./sim/SIM-PROTOCOL.md#standalone-engine-protocol-for-hytale).
 Hytale can compare the external manifest with the installed one before extracting and check
-that the plugin supports the protocol version. This package targets Node.js; embedding it with
-GraalJS requires a runtime adapter.
+that the plugin supports the protocol version. The ZIP includes a root `index.js` entry point for
+GraalJS. Evaluating it returns a factory that accepts file and randomness functions provided by the
+Java host. The factory exposes `startBattle(id, commands)`, `sendBattleMessage(id, commands)` and
+`endBattle(id)`. Commands use the same newline-delimited protocol as `EngineBattleStream`. The
+first two calls return the output frames produced by the command batch.
+The build also includes the Nomelat translators under `nomelat/`. The host can call
+`replaceAssets(json)` with the complete `{moves, abilities}` catalog to publish it atomically.
+`getAssetIds()` returns the published asset-to-engine ID mappings as JSON. Use those IDs and
+`format.mod: "orbisforge"` for new battles using Nomelat assets. Existing battles retain the registry
+that was current when they started.
 
 Use `npm start` to run the web server for manual testing.
 
